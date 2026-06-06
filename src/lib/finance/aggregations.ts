@@ -96,7 +96,15 @@ export async function getSpendingTrend(
   userId: string,
   monthsCount: number = 6
 ): Promise<{ month: string; total: number }[]> {
-  const now = new Date()
+  // Find latest transaction date for trend reference
+  const { data: latestTx } = await supabase
+    .from('transactions')
+    .select('date')
+    .eq('user_id', userId)
+    .order('date', { ascending: false })
+    .limit(1)
+
+  const now = latestTx && latestTx.length > 0 ? new Date(latestTx[0].date) : new Date()
   const startDate = new Date(now.getFullYear(), now.getMonth() - monthsCount + 1, 1)
   const startDateStr = startDate.toISOString().split('T')[0]
 

@@ -11,7 +11,15 @@ export async function detectAnomalies(
   userId: string,
   lookbackMonths: number = 3
 ): Promise<AnomalyResult> {
-  const now = new Date()
+  // Find latest transaction date for anomaly detection reference
+  const { data: latestTx } = await supabase
+    .from('transactions')
+    .select('date')
+    .eq('user_id', userId)
+    .order('date', { ascending: false })
+    .limit(1)
+
+  const now = latestTx && latestTx.length > 0 ? new Date(latestTx[0].date) : new Date()
   const currentMonth = now.getMonth() + 1
   const currentYear = now.getFullYear()
 
