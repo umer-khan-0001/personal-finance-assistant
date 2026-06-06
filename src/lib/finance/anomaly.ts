@@ -88,7 +88,7 @@ export async function detectAnomalies(
     // Flag first-time merchants with large amounts
     if (merchantCounts[tx.merchant] === 1 && amount > firstTimeThreshold) {
       isAnomaly = true
-      reason = `First transaction from ${tx.merchant} for $${amount.toFixed(2)}`
+      reason = `First transaction from ${tx.merchant} for Rs. ${amount.toFixed(2)}`
     }
 
     if (isAnomaly) {
