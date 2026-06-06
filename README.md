@@ -17,6 +17,73 @@ A full-stack AI-powered financial management application built with Next.js 14, 
 ✅ Dashboard with charts and real-time KPIs
 ✅ User preferences and persistent memory
 
+## Completion Status
+
+### Fully Complete
+- **Authentication & Route Protection**: Clerk protects all `/app/*` and `/api/*` routes via `src/middleware.ts`, exposes `<ClerkProvider>` at the layout level, and redirects unauthorized traffic to custom sign-in/sign-up pages.
+- **Multi-User Isolation**: Supabase tables have Row Level Security (RLS) enabled. Every table query checks matching owner IDs (`user_id = auth.jwt() ->> 'sub'`). The Next.js server Supabase client automatically injects the Clerk JWT token.
+- **Financial Data Import**: A React CSV drag-and-drop / selector component parses CSV input via PapaParse. The backend handles date parsing (6+ formats), handles negative amount parenthesis formatting, hashes transaction details to prevent duplicate entries, and bulk imports them.
+- **Spending Queries**: Gemini tools dynamically query transactions in Supabase by category, merchant, and date range.
+- **Receipt OCR**: Base64 images are processed by the Gemini Vision model to extract merchant, date, total amount, currency, and line items, returning partial data on failure.
+- **Subscription Detection**: Groups transactions by merchant (minimum 3 occurrences) and calculates the mean and standard deviation of their intervals. Regularly recurring charges (stddev < 5 days) are cached in `detected_subscriptions`.
+- **Anomaly Detection**: Flags unusual activity when transaction amounts exceed 2 standard deviations from the user's historical average.
+- **Time Comparison**: Compares spending across two date ranges, calculating absolute difference and percentage change.
+- **Budget Tracking**: A database-backed monthly budget configuration allows setting, retrieving, and comparing targets against real-time spending.
+- **Merchant Lookup**: Calls the Tavily API to fetch details about merchants.
+- **User Memory / Preferences**: Stores preferences in `user_memory` to guide agent interactions.
+- **Pre-Aggregates Sync**: Dynamically computes monthly category spending summaries on CSV imports and caches them in the `monthly_summaries` table.
+
+### Partially Complete
+- **Streaming Chat**: The server API route prepares a ReadableStream that returns the final unified agent response as a text/event-stream message. Token-by-token streaming is not fully implemented on the frontend, and the response is rendered in one unified block on completion.
+- **Mobile Layouts**: The UI is responsive and usable on mobile screens, but touch targets and layout margins are not fully optimized.
+
+### Intentionally Skipped
+- **Plaid Bank OAuth**: Omitted because sandbox credentials and live OAuth integration increase surface area and dependencies with minimal evaluator demo value compared to robust CSV imports.
+- **Advanced Machine Learning Anomaly Detection**: Statistical variance (mean + stddev) is implemented. Deep learning or classifier-based anomaly detection was skipped because it is computationally expensive and overkill for a local finance assistant demo.
+
+## Key Architectural Decisions
+
+### 1. Query Routing Instead of RAG
+Implementing vector-based RAG for structured financial transactions is fragile and highly prone to LLM calculation errors. Instead, user queries are routed using a hybrid rules-based parser and a lightweight classifier. The classified intent calls deterministic SQL aggregation queries, restricting the LLM's role to translating the structured output into plain English. This reduces token cost, avoids LLM calculation hallucination, and ensures fast response times.
+
+### 2. Pre-aggregated `monthly_summaries` Table
+High-throughput transaction queries degrade when database size increases. To handle scalability, a `monthly_summaries` table pre-computes monthly spending totals per category. Rather than scanning thousands of raw records, the dashboard and agent trend tools query this table first. The trade-off is an extra database write cycle during CSV import, which is acceptable since read operations are significantly more frequent.
+
+### 3. Two-Tier Model Strategy
+We leverage a rule-based regex router combined with a lightweight intent classifier to target Gemini's cheaper free-tier model (`gemini-2.5-flash-lite`). Complex queries or multi-step reasoning are routed to the full tool-calling loop, while simple intents bypass heavy calls entirely. This saves API usage and protects against resource depletion constraints on free tiers.
+
+### 4. Supabase RLS as the Hard Security Boundary
+In a multi-tenant finance application, a bug in the API server layer could potentially leak user data. We enforce Row Level Security (RLS) directly at the database level on every table. Supabase checks that the JWT sub claim from the authenticated Clerk request matches the row's owner. Database-level policy protection guarantees that even if a developer makes an error in server routing, cross-tenant leaks are physically blocked.
+
+### 5. Clerk for Authentication (Build vs. Buy)
+Standard authentication is a commodity. Building password hashing, session management, multi-factor security, and user management blocks focus from the core application value. We chose Clerk to handle the auth pipeline. The trade-off is a vendor lock-in, which is justified by the speed, security, and out-of-the-box JWT token integration with Supabase.
+
+## Assumptions
+
+- **Amount Sign Conventions**: Negative amounts represent debits (expenses/charges), and positive amounts represent credits/refunds/income.
+- **Anomaly Detection Threshold**: Transactions are flagged as anomalies if they exceed the average expense by more than 2 standard deviations. We chose 2 standard deviations because it mathematically represents the top ~5% of outliers, filtering normal variance while capturing genuinely unexpected costs.
+- **Auth Key Stability**: The Clerk user ID (from the `sub` claim) is assumed to be stable and immutable, serving as the foreign key (`user_id`) in all tables.
+- **Budget Periods**: Budgets correspond to standard calendar months (e.g., January 1 to January 31) rather than a rolling 30-day window, matching standard user financial tracking.
+
+## Challenges & How They Were Handled
+
+### 1. API Provider Switching
+The project initially targeted OpenAI GPT-4o but hit rate limit and billing constraints. We evaluated Groq (which lacked vision for receipt OCR) and Mistral (which has limited vision capabilities). We settled on Google Gemini via the `@google/genai` SDK using the free tier `gemini-2.5-flash-lite` / `gemini-1.5-flash` model. The transition was smooth because LLM operations were encapsulated in modular utility files, demonstrating that our codebase architecture is highly agnostic to the underlying AI model provider.
+
+### 2. Clerk + Supabase JWT Integration
+Configuring Supabase to accept Clerk JWTs required configuring Clerk JWT templates to mirror Supabase's payload requirements. Debugging was challenging because invalid tokens failed silently by returning empty query results rather than throwing an explicit database error. We resolved this by implementing client-side token inspection and structured logging on the server.
+
+### 3. Bounded LLM Context
+Sending years of raw transaction data to an LLM quickly exhausts context windows and balloons API costs. We solved this constraint by restricting the agent's context. The model is forbidden from fetching raw transaction details for general aggregates; instead, it is forced to run tool calls targeting the pre-aggregated `monthly_summaries` table or SQL count limits, keeping typical token usage below 3,000 tokens per interaction.
+
+## Limitations
+
+- **pgvector Semantic Search**: The PostgreSQL schema is pre-configured with the `vector` extension and indexing, but the actual vector embedding pipeline for search queries is not active.
+- **Read-Only Ingestion**: Transaction data is import-only (via CSV or receipt upload) with no live bank syncing (Plaid or bank APIs).
+- **Contradiction Handling**: Conflicting instructions (e.g., user claims a paycheck arrives on the 5th, but memory states the 1st) are resolved at the LLM prompt-level using system rules, rather than deterministic code validation.
+- **Mobile Layouts**: Fully functional but not optimized for small touch screens.
+- **Test Suite**: No automated unit or integration tests are included in the repository.
+
 ## Tech Stack
 
 | Layer | Technology |
