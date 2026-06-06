@@ -1,14 +1,14 @@
 # Personal Finance Assistant
 
-A full-stack AI-powered financial management application built with Next.js 14, Supabase, Clerk, and OpenAI.
+A full-stack AI-powered financial management application built with Next.js 14, Supabase, Clerk, and Gemini API (Google GenAI SDK).
 
 ## Features
 
 ✅ Multi-user authentication with Clerk
 ✅ CSV transaction import with automatic deduplication
-✅ Conversational AI assistant powered by GPT-4o
+✅ Conversational AI assistant powered by Gemini 2.5 Flash Lite
 ✅ Spending queries by category, merchant, and time period
-✅ Receipt OCR via GPT-4o vision
+✅ Receipt OCR via Gemini 2.5 Flash Lite Vision
 ✅ Subscription detection and tracking
 ✅ Anomaly detection for unusual spending
 ✅ Budget setting and tracking with alerts
@@ -27,8 +27,7 @@ A full-stack AI-powered financial management application built with Next.js 14, 
 | Auth | Clerk |
 | Database | Supabase (PostgreSQL) |
 | ORM | Supabase JS Client v2 |
-| AI - Primary | OpenAI GPT-4o |
-| AI - Fast | OpenAI GPT-4o-mini |
+| AI Model | Google Gemini 2.5 Flash Lite |
 | Web Search | Tavily API |
 | Charts | Recharts |
 | Forms | React Hook Form + Zod |
@@ -42,33 +41,34 @@ A full-stack AI-powered financial management application built with Next.js 14, 
 
 The core design avoids sending all transactions to the LLM. Instead:
 
-1. User intent is classified (GPT-4o-mini, ~$0.001)
-2. Query is routed to optimal data strategy
-3. Only aggregated results go to LLM
+1. User intent is classified using a rules engine, falling back to a Gemini 2.5 Flash Lite query (using strict JSON schemas)
+2. Query is routed to the optimal data strategy
+3. Only aggregated results go to the LLM agent
 
-This keeps p50 response time under 2s and cost per interaction under $0.01 for ~80% of queries.
+This keeps response time low, minimizes context token usage, and prevents rate-limit issues under free tier.
 
 ### Data Strategy
 
 | Intent | Data Approach | Model |
 |--------|---------------|-------|
-| Simple spending | SQL aggregation | GPT-4o-mini |
-| Category breakdown | monthly_summaries table | GPT-4o-mini |
-| Time comparison | Monthly aggregates | GPT-4o-mini |
-| Anomaly detection | Statistical queries | GPT-4o |
-| Receipt OCR | Base64 image | GPT-4o |
-| Complex advice | Aggregated context | GPT-4o |
+| Simple spending | SQL aggregation | Gemini 2.5 Flash Lite |
+| Category breakdown | monthly_summaries table | Gemini 2.5 Flash Lite |
+| Time comparison | Monthly aggregates | Gemini 2.5 Flash Lite |
+| Anomaly detection | Statistical queries | Gemini 2.5 Flash Lite |
+| Receipt OCR | Base64 image | Gemini 2.5 Flash Lite |
+| Complex advice | Aggregated context | Gemini 2.5 Flash Lite |
 
 ### Scale Strategy
 
-- **monthly_summaries table**: Pre-aggregated per user/month/category
+- **monthly_summaries table**: Pre-aggregated per user/month/category, updated dynamically on CSV import
 - **Raw transactions**: Only queried when necessary with proper indexes
 - **LLM context**: Hard cap on raw rows (max 50)
 - **Deduplication**: Hash-based at import time
+- **PKR Currency Support**: Multi-user transaction query output is automatically formatted as PKR (Rs.)
 
 ### Multi-User Isolation
 
-Supabase Row Level Security (RLS) policies ensure every query is scoped to authenticated user's Clerk ID. Database enforces isolation at all layers.
+Supabase Row Level Security (RLS) policies ensure every query is scoped to the authenticated user's Clerk ID. The server client injects the Clerk JWT token automatically.
 
 ## Setup
 
@@ -78,7 +78,7 @@ Supabase Row Level Security (RLS) policies ensure every query is scoped to authe
 - npm or yarn
 - Supabase project
 - Clerk account
-- OpenAI API key
+- Gemini API Key (Google AI Studio)
 - Tavily API key (optional, for merchant lookup)
 
 ### Installation
@@ -97,7 +97,7 @@ CLERK_SECRET_KEY=sk_test_...
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
-OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=AIzaSy...
 TAVILY_API_KEY=tvly-...
 ```
 
@@ -241,7 +241,7 @@ The CSV parser handles real-world messy data:
 | Clerk auth | Vendor dependency vs. days saved on auth plumbing |
 | Supabase | Same—fast to ship, harder to self-host |
 | monthly_summaries | Extra write on import vs. fast reads at scale |
-| GPT-4o-mini routing | Small misclassification risk vs. cost savings |
+| Gemini 2.5 Flash Lite routing | Small misclassification risk vs. free-tier quota conservation |
 | Tool calling | More deterministic than vector search for structured data |
 
 ## Future Enhancements
