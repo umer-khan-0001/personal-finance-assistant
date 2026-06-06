@@ -362,13 +362,46 @@ export async function executeTool(
       }
 
       case 'search_merchant_info': {
-        // Tavily API call would go here - for now return placeholder
-        return {
-          success: true,
-          data: {
-            merchant: toolInput.merchant_name,
-            description: 'Merchant information lookup not yet configured',
-          },
+        const apiKey = process.env.TAVILY_API_KEY
+        if (!apiKey) {
+          return {
+            success: true,
+            data: {
+              merchant: toolInput.merchant_name,
+              description: 'Tavily API key not configured',
+            },
+          }
+        }
+
+        try {
+          const res = await fetch('https://api.tavily.com/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              api_key: apiKey,
+              query: `what is the merchant or company ${toolInput.merchant_name}? Provide a brief summary of what they sell or do.`,
+              search_depth: 'basic',
+              include_answer: true,
+            }),
+          })
+
+          if (!res.ok) {
+            throw new Error(`Tavily search failed: ${res.statusText}`)
+          }
+
+          const data = await res.json()
+          return {
+            success: true,
+            data: {
+              merchant: toolInput.merchant_name,
+              description: data.answer || data.results?.[0]?.content || 'No merchant information found.',
+            },
+          }
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Tavily search failed',
+          }
         }
       }
 

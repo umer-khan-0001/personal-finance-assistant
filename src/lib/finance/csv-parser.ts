@@ -1,6 +1,7 @@
 import { Transaction, TransactionCategory } from '@/types'
 import { SupabaseClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
+import { recomputeMonthlySummaries } from './queries'
 
 interface ParseResult {
   valid: Transaction[]
@@ -280,7 +281,7 @@ export async function parseTransactionsCsv(
 
 export async function bulkImportTransactions(
   supabase: SupabaseClient,
-  _userId: string,
+  userId: string,
   transactions: Transaction[]
 ): Promise<{ imported: number; duplicates: number; skipped: number; errors: string[] }> {
   const errors: string[] = []
@@ -305,6 +306,16 @@ export async function bulkImportTransactions(
       skipped += chunk.length
     } else {
       imported += chunk.length
+    }
+  }
+
+  // Recompute monthly summaries after successful inserts
+  if (imported > 0) {
+    try {
+      await recomputeMonthlySummaries(supabase, userId)
+    } catch (err) {
+      console.error('Failed to recompute monthly summaries after CSV import:', err)
+      errors.push(`Summary recomputation error: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 

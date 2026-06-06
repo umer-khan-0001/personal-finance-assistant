@@ -359,3 +359,55 @@ export async function saveMessage(
 
   return data.id
 }
+
+export async function recomputeMonthlySummaries(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<void> {
+  const { data: transactions, error } = await supabase
+    .from('transactions')
+    .select('date, amount, category')
+    .eq('user_id', userId)
+    .lt('amount', 0)
+
+  if (error) throw error
+
+  const summaries: Record<string, { total_spent: number; tx_count: number }> = {}
+
+  transactions?.forEach((tx) => {
+    const txDate = new Date(tx.date)
+    const year = txDate.getFullYear()
+    const month = txDate.getMonth() + 1
+    const category = tx.category || 'Uncategorized'
+    const key = `${year}-${month}-${category}`
+
+    if (!summaries[key]) {
+      summaries[key] = { total_spent: 0, tx_count: 0 }
+    }
+    summaries[key].total_spent += Math.abs(parseFloat(tx.amount.toString()))
+    summaries[key].tx_count += 1
+  })
+
+  const upsertData = Object.entries(summaries).map(([key, data]) => {
+    const parts = key.split('-')
+    const year = parts[0]
+    const month = parts[1]
+    const category = parts.slice(2).join('-')
+    return {
+      user_id: userId,
+      year: parseInt(year, 10),
+      month: parseInt(month, 10),
+      category,
+      total_spent: parseFloat(data.total_spent.toFixed(2)),
+      tx_count: data.tx_count,
+    }
+  })
+
+  if (upsertData.length > 0) {
+    const { error: upsertError } = await supabase
+      .from('monthly_summaries')
+      .upsert(upsertData, { onConflict: 'user_id, year, month, category' })
+
+    if (upsertError) throw upsertError
+  }
+}
